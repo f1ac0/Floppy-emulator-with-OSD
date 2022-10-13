@@ -1,0 +1,95 @@
+diff -ur FF_OSD-master/inc/config.h FF_OSD-mod/inc/config.h
+--- FF_OSD-master/inc/config.h	2020-01-17 14:21:05.000000000 +0100
++++ FF_OSD-mod/inc/config.h	2020-06-29 15:51:03.000000000 +0200
+@@ -18,6 +18,9 @@
+ 
+ enum polarities { SYNC_LOW=0, SYNC_HIGH, SYNC_AUTO, SYNC_MAX };
+ 
++//FLACO
++enum driveconfs { F0G1=0, G0F1, F0, G0, DRIVECONF_MAX };
++
+ extern struct __packed config {
+ 
+     uint16_t polarity;
+@@ -46,6 +49,9 @@
+ 
+     uint16_t display_2Y;
+ 
++//FLACO
++    uint16_t driveconf;
++
+     /* Mask of user-assigned pins configured in open-drain mode. */
+     uint8_t user_pin_opendrain;
+     /* Mask of user-assigned pins configured in push-pull mode. */
+diff -ur FF_OSD-master/src/config.c FF_OSD-mod/src/config.c
+--- FF_OSD-master/src/config.c	2020-01-17 14:21:05.000000000 +0100
++++ FF_OSD-mod/src/config.c	2020-09-05 22:37:46.074579350 +0200
+@@ -96,6 +96,8 @@
+ static enum {
+     C_idle = 0,
+     C_banner,
++    /* FLACO: drive */
++    C_driveconf,
+     /* Output */
+     C_polarity,
+     C_disptiming,
+@@ -228,6 +230,32 @@
+             old_config = config;
+         }
+         break;
++//FLACO
++    case C_driveconf: {
++        const static char *str[] = { "0:Gotek,1:Drive", "0:Drive,1:Gotek", "0:Gotek",
++                                     "0:Drive" };
++        if (changed) {
++            cnf_prt(0, "Drives Setup:");
++        }
++        if (b & B_LEFT) {
++            if (config.driveconf > 0)
++                --config.driveconf;
++            else
++                config.driveconf = DRIVECONF_MAX-1;
++        }
++        if (b & B_RIGHT)
++            if (++config.driveconf >= DRIVECONF_MAX)
++                config.driveconf = 0;
++        if (b & (B_LEFT|B_RIGHT)) {//may not be done here but when applying config ?
++            /* PB8,PB9: used as drive configuration selection, resp. MSB and LSB */
++            gpio_configure_pin(gpiob, 8, (config.driveconf&2)?GPI_pull_up:GPI_pull_down);
++            gpio_configure_pin(gpiob, 9, (config.driveconf&1)?GPI_pull_up:GPI_pull_down);
++        }
++        if (b)
++            cnf_prt(1, "%s", str[config.driveconf]);
++        break;
++        }
++
+     case C_polarity:
+         if (changed)
+             cnf_prt(0, "Sync Polarity:");
+diff -ur FF_OSD-master/src/default_config.c FF_OSD-mod/src/default_config.c
+--- FF_OSD-master/src/default_config.c	2020-01-17 14:21:05.000000000 +0100
++++ FF_OSD-mod/src/default_config.c	2020-06-29 15:50:12.000000000 +0200
+@@ -21,6 +21,8 @@
+     .display_timing = DISP_15KHZ,
+     .display_spi = DISP_SPI2,
+     .display_2Y = FALSE,
++//FLACO
++    .driveconf = G0F1,
+ 
+ #define F(x) (x-1)   /* Hotkey (F1-F10) array index */
+ #define U(x) (1u<<x) /* User pin (U0-U2) bitmask */
+diff -ur FF_OSD-master/src/main.c FF_OSD-mod/src/main.c
+--- FF_OSD-master/src/main.c	2020-01-17 14:21:05.000000000 +0100
++++ FF_OSD-mod/src/main.c	2020-06-29 20:05:17.902828240 +0200
+@@ -889,6 +889,11 @@
+     if (config.polarity == SYNC_HIGH)
+         running_polarity = SYNC_HIGH;
+ 
++//FLACO
++    /* PB8,PB9: used as drive configuration selection, resp. MSB and LSB */
++    gpio_configure_pin(gpiob, 8, (config.driveconf&2)?GPI_pull_up:GPI_pull_down);
++    gpio_configure_pin(gpiob, 9, (config.driveconf&1)?GPI_pull_up:GPI_pull_down);
++
+     /* Set user pin output modes and initial logic levels. */
+     for (i = 0; i < 3; i++) {
+         bool_t level = (config.user_pin_high >> i) & 1;
